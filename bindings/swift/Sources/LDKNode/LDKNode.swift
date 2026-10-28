@@ -1613,6 +1613,8 @@ public protocol BuilderProtocol: AnyObject {
 
     func setPathfindingScoresSource(url: String)
 
+    func setPrimaryNode(nodeId: PublicKey)
+
     func setScoringDecayParams(params: ScoringDecayParameters)
 
     func setScoringFeeParams(params: ScoringFeeParameters)
@@ -1895,6 +1897,13 @@ open class Builder:
         try! rustCall {
             uniffi_ldk_node_fn_method_builder_set_pathfinding_scores_source(self.uniffiClonePointer(),
                                                                             FfiConverterString.lower(url), $0)
+        }
+    }
+
+    open func setPrimaryNode(nodeId: PublicKey) {
+        try! rustCall {
+            uniffi_ldk_node_fn_method_builder_set_primary_node(self.uniffiClonePointer(),
+                                                               FfiConverterTypePublicKey.lower(nodeId), $0)
         }
     }
 
@@ -2534,21 +2543,33 @@ public protocol NodeProtocol: AnyObject {
 
     func bolt12Payment() -> Bolt12Payment
 
+    func checkPrimaryConnection(nodeId: PublicKey) throws
+
     func closeChannel(userChannelId: UserChannelId, counterpartyNodeId: PublicKey) throws
 
     func config() -> Config
 
     func connect(nodeId: PublicKey, address: SocketAddress, persist: Bool) throws
 
+    func createDirectFundingRequest(amountSats: UInt64?, expirySecs: UInt32) throws -> DirectFundingRequestDetails
+
     func currentSyncIntervals() -> RuntimeSyncIntervals
 
+    func decodeDirectFundingRequest(request: String) throws -> DirectFundingRequestDetails
+
     func disconnect(nodeId: PublicKey) throws
+
+    func estimatedFeeRates() -> OnchainFeeRates
 
     func eventHandled() throws
 
     func exportOnchainWalletAccountXpub(addressType: AddressType, accountIndex: UInt32) throws -> String
 
     func exportPathfindingScores() throws -> Data
+
+    func fetchTransactionDetails(txid: Txid) throws -> TransactionDetails
+
+    func fetchTransactionStatus(txid: Txid) throws -> ConfirmationStatus
 
     func forceCloseChannel(userChannelId: UserChannelId, counterpartyNodeId: PublicKey, reason: String?) throws
 
@@ -2560,9 +2581,15 @@ public protocol NodeProtocol: AnyObject {
 
     func getTransactionDetails(txid: Txid) -> TransactionDetails?
 
+    func hasPendingFundingOperation() -> Bool
+
+    func invalidateDirectFundingRequest(requestId: String) throws
+
     func listBalances() -> BalanceDetails
 
     func listChannels() -> [ChannelDetails]
+
+    func listDirectFundingPayments() -> [DirectFundingPaymentDetails]
 
     func listMonitoredAddressTypes() -> [AddressType]
 
@@ -2592,13 +2619,23 @@ public protocol NodeProtocol: AnyObject {
 
     func openChannel(nodeId: PublicKey, address: SocketAddress, channelAmountSats: UInt64, pushToCounterpartyMsat: UInt64?, channelConfig: ChannelConfig?) throws -> UserChannelId
 
+    func openChannelWithUserChannelId(nodeId: PublicKey, address: SocketAddress, channelAmountSats: UInt64, pushToCounterpartyMsat: UInt64?, channelConfig: ChannelConfig?, userChannelId: UserChannelId) throws -> UserChannelId
+
     func payment(paymentId: PaymentId) -> PaymentDetails?
+
+    func prepareDirectFunding(request: String, amountSats: UInt64?) throws -> DirectFundingRequestDetails
+
+    func quotePrimaryReceive(nodeId: PublicKey, amountMsat: UInt64, targetInboundSats: UInt64) throws -> PrimaryReceiveQuote
+
+    func receiveViaPrimary(nodeId: PublicKey, amountMsat: UInt64, description: Bolt11InvoiceDescription, expirySecs: UInt32, maxFeeMsat: UInt64, targetInboundSats: UInt64) throws -> Bolt11Invoice
 
     func removeAddressTypeFromMonitor(addressType: AddressType) throws
 
     func removeOnchainWalletAccount(addressType: AddressType, accountIndex: UInt32) throws
 
     func removePayment(paymentId: PaymentId) throws
+
+    func sendDirectFunding(request: String, amountSats: UInt64?, maxFeeSats: UInt64) throws -> DirectFundingPaymentDetails
 
     func setPrimaryAddressType(addressType: AddressType, seedBytes: [UInt8]) throws
 
@@ -2609,6 +2646,8 @@ public protocol NodeProtocol: AnyObject {
     func spliceIn(userChannelId: UserChannelId, counterpartyNodeId: PublicKey, spliceAmountSats: UInt64) throws
 
     func spliceOut(userChannelId: UserChannelId, counterpartyNodeId: PublicKey, address: Address, spliceAmountSats: UInt64) throws
+
+    func spliceOutWithFeeRate(userChannelId: UserChannelId, counterpartyNodeId: PublicKey, address: Address, spliceAmountSats: UInt64, feeRateSatPerVbyte: UInt64) throws
 
     func spontaneousPayment() -> SpontaneousPayment
 
@@ -2724,6 +2763,13 @@ open class Node:
         })
     }
 
+    open func checkPrimaryConnection(nodeId: PublicKey) throws {
+        try rustCallWithError(FfiConverterTypeNodeError.lift) {
+            uniffi_ldk_node_fn_method_node_check_primary_connection(self.uniffiClonePointer(),
+                                                                    FfiConverterTypePublicKey.lower(nodeId), $0)
+        }
+    }
+
     open func closeChannel(userChannelId: UserChannelId, counterpartyNodeId: PublicKey) throws {
         try rustCallWithError(FfiConverterTypeNodeError.lift) {
             uniffi_ldk_node_fn_method_node_close_channel(self.uniffiClonePointer(),
@@ -2747,9 +2793,24 @@ open class Node:
         }
     }
 
+    open func createDirectFundingRequest(amountSats: UInt64?, expirySecs: UInt32) throws -> DirectFundingRequestDetails {
+        return try FfiConverterTypeDirectFundingRequestDetails.lift(rustCallWithError(FfiConverterTypeDirectFundingError.lift) {
+            uniffi_ldk_node_fn_method_node_create_direct_funding_request(self.uniffiClonePointer(),
+                                                                         FfiConverterOptionUInt64.lower(amountSats),
+                                                                         FfiConverterUInt32.lower(expirySecs), $0)
+        })
+    }
+
     open func currentSyncIntervals() -> RuntimeSyncIntervals {
         return try! FfiConverterTypeRuntimeSyncIntervals.lift(try! rustCall {
             uniffi_ldk_node_fn_method_node_current_sync_intervals(self.uniffiClonePointer(), $0)
+        })
+    }
+
+    open func decodeDirectFundingRequest(request: String) throws -> DirectFundingRequestDetails {
+        return try FfiConverterTypeDirectFundingRequestDetails.lift(rustCallWithError(FfiConverterTypeDirectFundingError.lift) {
+            uniffi_ldk_node_fn_method_node_decode_direct_funding_request(self.uniffiClonePointer(),
+                                                                         FfiConverterString.lower(request), $0)
         })
     }
 
@@ -2758,6 +2819,12 @@ open class Node:
             uniffi_ldk_node_fn_method_node_disconnect(self.uniffiClonePointer(),
                                                       FfiConverterTypePublicKey.lower(nodeId), $0)
         }
+    }
+
+    open func estimatedFeeRates() -> OnchainFeeRates {
+        return try! FfiConverterTypeOnchainFeeRates.lift(try! rustCall {
+            uniffi_ldk_node_fn_method_node_estimated_fee_rates(self.uniffiClonePointer(), $0)
+        })
     }
 
     open func eventHandled() throws {
@@ -2777,6 +2844,20 @@ open class Node:
     open func exportPathfindingScores() throws -> Data {
         return try FfiConverterData.lift(rustCallWithError(FfiConverterTypeNodeError.lift) {
             uniffi_ldk_node_fn_method_node_export_pathfinding_scores(self.uniffiClonePointer(), $0)
+        })
+    }
+
+    open func fetchTransactionDetails(txid: Txid) throws -> TransactionDetails {
+        return try FfiConverterTypeTransactionDetails.lift(rustCallWithError(FfiConverterTypeNodeError.lift) {
+            uniffi_ldk_node_fn_method_node_fetch_transaction_details(self.uniffiClonePointer(),
+                                                                     FfiConverterTypeTxid.lower(txid), $0)
+        })
+    }
+
+    open func fetchTransactionStatus(txid: Txid) throws -> ConfirmationStatus {
+        return try FfiConverterTypeConfirmationStatus.lift(rustCallWithError(FfiConverterTypeNodeError.lift) {
+            uniffi_ldk_node_fn_method_node_fetch_transaction_status(self.uniffiClonePointer(),
+                                                                    FfiConverterTypeTxid.lower(txid), $0)
         })
     }
 
@@ -2818,6 +2899,19 @@ open class Node:
         })
     }
 
+    open func hasPendingFundingOperation() -> Bool {
+        return try! FfiConverterBool.lift(try! rustCall {
+            uniffi_ldk_node_fn_method_node_has_pending_funding_operation(self.uniffiClonePointer(), $0)
+        })
+    }
+
+    open func invalidateDirectFundingRequest(requestId: String) throws {
+        try rustCallWithError(FfiConverterTypeDirectFundingError.lift) {
+            uniffi_ldk_node_fn_method_node_invalidate_direct_funding_request(self.uniffiClonePointer(),
+                                                                             FfiConverterString.lower(requestId), $0)
+        }
+    }
+
     open func listBalances() -> BalanceDetails {
         return try! FfiConverterTypeBalanceDetails.lift(try! rustCall {
             uniffi_ldk_node_fn_method_node_list_balances(self.uniffiClonePointer(), $0)
@@ -2827,6 +2921,12 @@ open class Node:
     open func listChannels() -> [ChannelDetails] {
         return try! FfiConverterSequenceTypeChannelDetails.lift(try! rustCall {
             uniffi_ldk_node_fn_method_node_list_channels(self.uniffiClonePointer(), $0)
+        })
+    }
+
+    open func listDirectFundingPayments() -> [DirectFundingPaymentDetails] {
+        return try! FfiConverterSequenceTypeDirectFundingPaymentDetails.lift(try! rustCall {
+            uniffi_ldk_node_fn_method_node_list_direct_funding_payments(self.uniffiClonePointer(), $0)
         })
     }
 
@@ -2934,10 +3034,51 @@ open class Node:
         })
     }
 
+    open func openChannelWithUserChannelId(nodeId: PublicKey, address: SocketAddress, channelAmountSats: UInt64, pushToCounterpartyMsat: UInt64?, channelConfig: ChannelConfig?, userChannelId: UserChannelId) throws -> UserChannelId {
+        return try FfiConverterTypeUserChannelId.lift(rustCallWithError(FfiConverterTypeNodeError.lift) {
+            uniffi_ldk_node_fn_method_node_open_channel_with_user_channel_id(self.uniffiClonePointer(),
+                                                                             FfiConverterTypePublicKey.lower(nodeId),
+                                                                             FfiConverterTypeSocketAddress.lower(address),
+                                                                             FfiConverterUInt64.lower(channelAmountSats),
+                                                                             FfiConverterOptionUInt64.lower(pushToCounterpartyMsat),
+                                                                             FfiConverterOptionTypeChannelConfig.lower(channelConfig),
+                                                                             FfiConverterTypeUserChannelId.lower(userChannelId), $0)
+        })
+    }
+
     open func payment(paymentId: PaymentId) -> PaymentDetails? {
         return try! FfiConverterOptionTypePaymentDetails.lift(try! rustCall {
             uniffi_ldk_node_fn_method_node_payment(self.uniffiClonePointer(),
                                                    FfiConverterTypePaymentId.lower(paymentId), $0)
+        })
+    }
+
+    open func prepareDirectFunding(request: String, amountSats: UInt64?) throws -> DirectFundingRequestDetails {
+        return try FfiConverterTypeDirectFundingRequestDetails.lift(rustCallWithError(FfiConverterTypeDirectFundingError.lift) {
+            uniffi_ldk_node_fn_method_node_prepare_direct_funding(self.uniffiClonePointer(),
+                                                                  FfiConverterString.lower(request),
+                                                                  FfiConverterOptionUInt64.lower(amountSats), $0)
+        })
+    }
+
+    open func quotePrimaryReceive(nodeId: PublicKey, amountMsat: UInt64, targetInboundSats: UInt64) throws -> PrimaryReceiveQuote {
+        return try FfiConverterTypePrimaryReceiveQuote.lift(rustCallWithError(FfiConverterTypeNodeError.lift) {
+            uniffi_ldk_node_fn_method_node_quote_primary_receive(self.uniffiClonePointer(),
+                                                                 FfiConverterTypePublicKey.lower(nodeId),
+                                                                 FfiConverterUInt64.lower(amountMsat),
+                                                                 FfiConverterUInt64.lower(targetInboundSats), $0)
+        })
+    }
+
+    open func receiveViaPrimary(nodeId: PublicKey, amountMsat: UInt64, description: Bolt11InvoiceDescription, expirySecs: UInt32, maxFeeMsat: UInt64, targetInboundSats: UInt64) throws -> Bolt11Invoice {
+        return try FfiConverterTypeBolt11Invoice.lift(rustCallWithError(FfiConverterTypeNodeError.lift) {
+            uniffi_ldk_node_fn_method_node_receive_via_primary(self.uniffiClonePointer(),
+                                                               FfiConverterTypePublicKey.lower(nodeId),
+                                                               FfiConverterUInt64.lower(amountMsat),
+                                                               FfiConverterTypeBolt11InvoiceDescription.lower(description),
+                                                               FfiConverterUInt32.lower(expirySecs),
+                                                               FfiConverterUInt64.lower(maxFeeMsat),
+                                                               FfiConverterUInt64.lower(targetInboundSats), $0)
         })
     }
 
@@ -2961,6 +3102,15 @@ open class Node:
             uniffi_ldk_node_fn_method_node_remove_payment(self.uniffiClonePointer(),
                                                           FfiConverterTypePaymentId.lower(paymentId), $0)
         }
+    }
+
+    open func sendDirectFunding(request: String, amountSats: UInt64?, maxFeeSats: UInt64) throws -> DirectFundingPaymentDetails {
+        return try FfiConverterTypeDirectFundingPaymentDetails.lift(rustCallWithError(FfiConverterTypeDirectFundingError.lift) {
+            uniffi_ldk_node_fn_method_node_send_direct_funding(self.uniffiClonePointer(),
+                                                               FfiConverterString.lower(request),
+                                                               FfiConverterOptionUInt64.lower(amountSats),
+                                                               FfiConverterUInt64.lower(maxFeeSats), $0)
+        })
     }
 
     open func setPrimaryAddressType(addressType: AddressType, seedBytes: [UInt8]) throws {
@@ -3003,6 +3153,17 @@ open class Node:
                                                       FfiConverterTypePublicKey.lower(counterpartyNodeId),
                                                       FfiConverterTypeAddress.lower(address),
                                                       FfiConverterUInt64.lower(spliceAmountSats), $0)
+        }
+    }
+
+    open func spliceOutWithFeeRate(userChannelId: UserChannelId, counterpartyNodeId: PublicKey, address: Address, spliceAmountSats: UInt64, feeRateSatPerVbyte: UInt64) throws {
+        try rustCallWithError(FfiConverterTypeNodeError.lift) {
+            uniffi_ldk_node_fn_method_node_splice_out_with_fee_rate(self.uniffiClonePointer(),
+                                                                    FfiConverterTypeUserChannelId.lower(userChannelId),
+                                                                    FfiConverterTypePublicKey.lower(counterpartyNodeId),
+                                                                    FfiConverterTypeAddress.lower(address),
+                                                                    FfiConverterUInt64.lower(spliceAmountSats),
+                                                                    FfiConverterUInt64.lower(feeRateSatPerVbyte), $0)
         }
     }
 
@@ -5522,6 +5683,7 @@ public struct Config {
     public var announcementAddresses: [SocketAddress]?
     public var nodeAlias: NodeAlias?
     public var trustedPeers0conf: [PublicKey]
+    public var primaryNodeId: PublicKey?
     public var probingLiquidityLimitMultiplier: UInt64
     public var anchorChannelsConfig: AnchorChannelsConfig?
     public var routeParameters: RouteParametersConfig?
@@ -5534,13 +5696,14 @@ public struct Config {
 
     /// Default memberwise initializers are never public by default, so we
     /// declare one manually.
-    public init(storageDirPath: String, network: Network, listeningAddresses: [SocketAddress]?, announcementAddresses: [SocketAddress]?, nodeAlias: NodeAlias?, trustedPeers0conf: [PublicKey], probingLiquidityLimitMultiplier: UInt64, anchorChannelsConfig: AnchorChannelsConfig?, routeParameters: RouteParametersConfig?, scoringFeeParams: ScoringFeeParameters?, scoringDecayParams: ScoringDecayParameters?, includeUntrustedPendingInSpendable: Bool, addressType: AddressType, addressTypesToMonitor: [AddressType], onchainWalletAccounts: [OnchainWalletAccountConfig]) {
+    public init(storageDirPath: String, network: Network, listeningAddresses: [SocketAddress]?, announcementAddresses: [SocketAddress]?, nodeAlias: NodeAlias?, trustedPeers0conf: [PublicKey], primaryNodeId: PublicKey?, probingLiquidityLimitMultiplier: UInt64, anchorChannelsConfig: AnchorChannelsConfig?, routeParameters: RouteParametersConfig?, scoringFeeParams: ScoringFeeParameters?, scoringDecayParams: ScoringDecayParameters?, includeUntrustedPendingInSpendable: Bool, addressType: AddressType, addressTypesToMonitor: [AddressType], onchainWalletAccounts: [OnchainWalletAccountConfig]) {
         self.storageDirPath = storageDirPath
         self.network = network
         self.listeningAddresses = listeningAddresses
         self.announcementAddresses = announcementAddresses
         self.nodeAlias = nodeAlias
         self.trustedPeers0conf = trustedPeers0conf
+        self.primaryNodeId = primaryNodeId
         self.probingLiquidityLimitMultiplier = probingLiquidityLimitMultiplier
         self.anchorChannelsConfig = anchorChannelsConfig
         self.routeParameters = routeParameters
@@ -5571,6 +5734,9 @@ extension Config: Equatable, Hashable {
             return false
         }
         if lhs.trustedPeers0conf != rhs.trustedPeers0conf {
+            return false
+        }
+        if lhs.primaryNodeId != rhs.primaryNodeId {
             return false
         }
         if lhs.probingLiquidityLimitMultiplier != rhs.probingLiquidityLimitMultiplier {
@@ -5610,6 +5776,7 @@ extension Config: Equatable, Hashable {
         hasher.combine(announcementAddresses)
         hasher.combine(nodeAlias)
         hasher.combine(trustedPeers0conf)
+        hasher.combine(primaryNodeId)
         hasher.combine(probingLiquidityLimitMultiplier)
         hasher.combine(anchorChannelsConfig)
         hasher.combine(routeParameters)
@@ -5635,6 +5802,7 @@ public struct FfiConverterTypeConfig: FfiConverterRustBuffer {
                 announcementAddresses: FfiConverterOptionSequenceTypeSocketAddress.read(from: &buf),
                 nodeAlias: FfiConverterOptionTypeNodeAlias.read(from: &buf),
                 trustedPeers0conf: FfiConverterSequenceTypePublicKey.read(from: &buf),
+                primaryNodeId: FfiConverterOptionTypePublicKey.read(from: &buf),
                 probingLiquidityLimitMultiplier: FfiConverterUInt64.read(from: &buf),
                 anchorChannelsConfig: FfiConverterOptionTypeAnchorChannelsConfig.read(from: &buf),
                 routeParameters: FfiConverterOptionTypeRouteParametersConfig.read(from: &buf),
@@ -5654,6 +5822,7 @@ public struct FfiConverterTypeConfig: FfiConverterRustBuffer {
         FfiConverterOptionSequenceTypeSocketAddress.write(value.announcementAddresses, into: &buf)
         FfiConverterOptionTypeNodeAlias.write(value.nodeAlias, into: &buf)
         FfiConverterSequenceTypePublicKey.write(value.trustedPeers0conf, into: &buf)
+        FfiConverterOptionTypePublicKey.write(value.primaryNodeId, into: &buf)
         FfiConverterUInt64.write(value.probingLiquidityLimitMultiplier, into: &buf)
         FfiConverterOptionTypeAnchorChannelsConfig.write(value.anchorChannelsConfig, into: &buf)
         FfiConverterOptionTypeRouteParametersConfig.write(value.routeParameters, into: &buf)
@@ -5739,6 +5908,208 @@ public func FfiConverterTypeCustomTlvRecord_lift(_ buf: RustBuffer) throws -> Cu
 #endif
 public func FfiConverterTypeCustomTlvRecord_lower(_ value: CustomTlvRecord) -> RustBuffer {
     return FfiConverterTypeCustomTlvRecord.lower(value)
+}
+
+public struct DirectFundingPaymentDetails {
+    public var requestId: String
+    public var paymentHash: String
+    public var amountSats: UInt64
+    public var feeSats: UInt64?
+    public var fundingTxid: String?
+    public var status: DirectFundingPaymentStatus
+    public var isOutbound: Bool
+    public var createdAt: UInt64
+
+    /// Default memberwise initializers are never public by default, so we
+    /// declare one manually.
+    public init(requestId: String, paymentHash: String, amountSats: UInt64, feeSats: UInt64?, fundingTxid: String?, status: DirectFundingPaymentStatus, isOutbound: Bool, createdAt: UInt64) {
+        self.requestId = requestId
+        self.paymentHash = paymentHash
+        self.amountSats = amountSats
+        self.feeSats = feeSats
+        self.fundingTxid = fundingTxid
+        self.status = status
+        self.isOutbound = isOutbound
+        self.createdAt = createdAt
+    }
+}
+
+extension DirectFundingPaymentDetails: Equatable, Hashable {
+    public static func == (lhs: DirectFundingPaymentDetails, rhs: DirectFundingPaymentDetails) -> Bool {
+        if lhs.requestId != rhs.requestId {
+            return false
+        }
+        if lhs.paymentHash != rhs.paymentHash {
+            return false
+        }
+        if lhs.amountSats != rhs.amountSats {
+            return false
+        }
+        if lhs.feeSats != rhs.feeSats {
+            return false
+        }
+        if lhs.fundingTxid != rhs.fundingTxid {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.isOutbound != rhs.isOutbound {
+            return false
+        }
+        if lhs.createdAt != rhs.createdAt {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(requestId)
+        hasher.combine(paymentHash)
+        hasher.combine(amountSats)
+        hasher.combine(feeSats)
+        hasher.combine(fundingTxid)
+        hasher.combine(status)
+        hasher.combine(isOutbound)
+        hasher.combine(createdAt)
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDirectFundingPaymentDetails: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DirectFundingPaymentDetails {
+        return
+            try DirectFundingPaymentDetails(
+                requestId: FfiConverterString.read(from: &buf),
+                paymentHash: FfiConverterString.read(from: &buf),
+                amountSats: FfiConverterUInt64.read(from: &buf),
+                feeSats: FfiConverterOptionUInt64.read(from: &buf),
+                fundingTxid: FfiConverterOptionString.read(from: &buf),
+                status: FfiConverterTypeDirectFundingPaymentStatus.read(from: &buf),
+                isOutbound: FfiConverterBool.read(from: &buf),
+                createdAt: FfiConverterUInt64.read(from: &buf)
+            )
+    }
+
+    public static func write(_ value: DirectFundingPaymentDetails, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.requestId, into: &buf)
+        FfiConverterString.write(value.paymentHash, into: &buf)
+        FfiConverterUInt64.write(value.amountSats, into: &buf)
+        FfiConverterOptionUInt64.write(value.feeSats, into: &buf)
+        FfiConverterOptionString.write(value.fundingTxid, into: &buf)
+        FfiConverterTypeDirectFundingPaymentStatus.write(value.status, into: &buf)
+        FfiConverterBool.write(value.isOutbound, into: &buf)
+        FfiConverterUInt64.write(value.createdAt, into: &buf)
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDirectFundingPaymentDetails_lift(_ buf: RustBuffer) throws -> DirectFundingPaymentDetails {
+    return try FfiConverterTypeDirectFundingPaymentDetails.lift(buf)
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDirectFundingPaymentDetails_lower(_ value: DirectFundingPaymentDetails) -> RustBuffer {
+    return FfiConverterTypeDirectFundingPaymentDetails.lower(value)
+}
+
+public struct DirectFundingRequestDetails {
+    public var request: String
+    public var requestId: String
+    public var paymentHash: String
+    public var receiverNodeId: String
+    public var amountSats: UInt64?
+    public var expiresAt: UInt64
+
+    /// Default memberwise initializers are never public by default, so we
+    /// declare one manually.
+    public init(request: String, requestId: String, paymentHash: String, receiverNodeId: String, amountSats: UInt64?, expiresAt: UInt64) {
+        self.request = request
+        self.requestId = requestId
+        self.paymentHash = paymentHash
+        self.receiverNodeId = receiverNodeId
+        self.amountSats = amountSats
+        self.expiresAt = expiresAt
+    }
+}
+
+extension DirectFundingRequestDetails: Equatable, Hashable {
+    public static func == (lhs: DirectFundingRequestDetails, rhs: DirectFundingRequestDetails) -> Bool {
+        if lhs.request != rhs.request {
+            return false
+        }
+        if lhs.requestId != rhs.requestId {
+            return false
+        }
+        if lhs.paymentHash != rhs.paymentHash {
+            return false
+        }
+        if lhs.receiverNodeId != rhs.receiverNodeId {
+            return false
+        }
+        if lhs.amountSats != rhs.amountSats {
+            return false
+        }
+        if lhs.expiresAt != rhs.expiresAt {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(request)
+        hasher.combine(requestId)
+        hasher.combine(paymentHash)
+        hasher.combine(receiverNodeId)
+        hasher.combine(amountSats)
+        hasher.combine(expiresAt)
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDirectFundingRequestDetails: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DirectFundingRequestDetails {
+        return
+            try DirectFundingRequestDetails(
+                request: FfiConverterString.read(from: &buf),
+                requestId: FfiConverterString.read(from: &buf),
+                paymentHash: FfiConverterString.read(from: &buf),
+                receiverNodeId: FfiConverterString.read(from: &buf),
+                amountSats: FfiConverterOptionUInt64.read(from: &buf),
+                expiresAt: FfiConverterUInt64.read(from: &buf)
+            )
+    }
+
+    public static func write(_ value: DirectFundingRequestDetails, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.request, into: &buf)
+        FfiConverterString.write(value.requestId, into: &buf)
+        FfiConverterString.write(value.paymentHash, into: &buf)
+        FfiConverterString.write(value.receiverNodeId, into: &buf)
+        FfiConverterOptionUInt64.write(value.amountSats, into: &buf)
+        FfiConverterUInt64.write(value.expiresAt, into: &buf)
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDirectFundingRequestDetails_lift(_ buf: RustBuffer) throws -> DirectFundingRequestDetails {
+    return try FfiConverterTypeDirectFundingRequestDetails.lift(buf)
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDirectFundingRequestDetails_lower(_ value: DirectFundingRequestDetails) -> RustBuffer {
+    return FfiConverterTypeDirectFundingRequestDetails.lower(value)
 }
 
 public struct ElectrumSyncConfig {
@@ -6771,6 +7142,83 @@ public func FfiConverterTypeNodeStatus_lower(_ value: NodeStatus) -> RustBuffer 
     return FfiConverterTypeNodeStatus.lower(value)
 }
 
+public struct OnchainFeeRates {
+    public var fastSatPerVbyte: UInt64
+    public var normalSatPerVbyte: UInt64
+    public var slowSatPerVbyte: UInt64
+    public var channelFundingSatPerVbyte: UInt64
+
+    /// Default memberwise initializers are never public by default, so we
+    /// declare one manually.
+    public init(fastSatPerVbyte: UInt64, normalSatPerVbyte: UInt64, slowSatPerVbyte: UInt64, channelFundingSatPerVbyte: UInt64) {
+        self.fastSatPerVbyte = fastSatPerVbyte
+        self.normalSatPerVbyte = normalSatPerVbyte
+        self.slowSatPerVbyte = slowSatPerVbyte
+        self.channelFundingSatPerVbyte = channelFundingSatPerVbyte
+    }
+}
+
+extension OnchainFeeRates: Equatable, Hashable {
+    public static func == (lhs: OnchainFeeRates, rhs: OnchainFeeRates) -> Bool {
+        if lhs.fastSatPerVbyte != rhs.fastSatPerVbyte {
+            return false
+        }
+        if lhs.normalSatPerVbyte != rhs.normalSatPerVbyte {
+            return false
+        }
+        if lhs.slowSatPerVbyte != rhs.slowSatPerVbyte {
+            return false
+        }
+        if lhs.channelFundingSatPerVbyte != rhs.channelFundingSatPerVbyte {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(fastSatPerVbyte)
+        hasher.combine(normalSatPerVbyte)
+        hasher.combine(slowSatPerVbyte)
+        hasher.combine(channelFundingSatPerVbyte)
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOnchainFeeRates: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OnchainFeeRates {
+        return
+            try OnchainFeeRates(
+                fastSatPerVbyte: FfiConverterUInt64.read(from: &buf),
+                normalSatPerVbyte: FfiConverterUInt64.read(from: &buf),
+                slowSatPerVbyte: FfiConverterUInt64.read(from: &buf),
+                channelFundingSatPerVbyte: FfiConverterUInt64.read(from: &buf)
+            )
+    }
+
+    public static func write(_ value: OnchainFeeRates, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.fastSatPerVbyte, into: &buf)
+        FfiConverterUInt64.write(value.normalSatPerVbyte, into: &buf)
+        FfiConverterUInt64.write(value.slowSatPerVbyte, into: &buf)
+        FfiConverterUInt64.write(value.channelFundingSatPerVbyte, into: &buf)
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOnchainFeeRates_lift(_ buf: RustBuffer) throws -> OnchainFeeRates {
+    return try FfiConverterTypeOnchainFeeRates.lift(buf)
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOnchainFeeRates_lower(_ value: OnchainFeeRates) -> RustBuffer {
+    return FfiConverterTypeOnchainFeeRates.lower(value)
+}
+
 public struct OnchainWalletAccount {
     public var addressType: AddressType
     public var accountIndex: UInt32
@@ -7138,6 +7586,75 @@ public func FfiConverterTypePeerDetails_lift(_ buf: RustBuffer) throws -> PeerDe
 #endif
 public func FfiConverterTypePeerDetails_lower(_ value: PeerDetails) -> RustBuffer {
     return FfiConverterTypePeerDetails.lower(value)
+}
+
+public struct PrimaryReceiveQuote {
+    public var amountMsat: UInt64
+    public var feeMsat: UInt64
+    public var fundingSats: UInt64
+
+    /// Default memberwise initializers are never public by default, so we
+    /// declare one manually.
+    public init(amountMsat: UInt64, feeMsat: UInt64, fundingSats: UInt64) {
+        self.amountMsat = amountMsat
+        self.feeMsat = feeMsat
+        self.fundingSats = fundingSats
+    }
+}
+
+extension PrimaryReceiveQuote: Equatable, Hashable {
+    public static func == (lhs: PrimaryReceiveQuote, rhs: PrimaryReceiveQuote) -> Bool {
+        if lhs.amountMsat != rhs.amountMsat {
+            return false
+        }
+        if lhs.feeMsat != rhs.feeMsat {
+            return false
+        }
+        if lhs.fundingSats != rhs.fundingSats {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(amountMsat)
+        hasher.combine(feeMsat)
+        hasher.combine(fundingSats)
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePrimaryReceiveQuote: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PrimaryReceiveQuote {
+        return
+            try PrimaryReceiveQuote(
+                amountMsat: FfiConverterUInt64.read(from: &buf),
+                feeMsat: FfiConverterUInt64.read(from: &buf),
+                fundingSats: FfiConverterUInt64.read(from: &buf)
+            )
+    }
+
+    public static func write(_ value: PrimaryReceiveQuote, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.amountMsat, into: &buf)
+        FfiConverterUInt64.write(value.feeMsat, into: &buf)
+        FfiConverterUInt64.write(value.fundingSats, into: &buf)
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypePrimaryReceiveQuote_lift(_ buf: RustBuffer) throws -> PrimaryReceiveQuote {
+    return try FfiConverterTypePrimaryReceiveQuote.lift(buf)
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypePrimaryReceiveQuote_lower(_ value: PrimaryReceiveQuote) -> RustBuffer {
+    return FfiConverterTypePrimaryReceiveQuote.lower(value)
 }
 
 public struct ProbeHandle {
@@ -8712,6 +9229,223 @@ public func FfiConverterTypeCurrency_lower(_ value: Currency) -> RustBuffer {
 
 extension Currency: Equatable, Hashable {}
 
+public enum DirectFundingError {
+    case InvalidRequest(message: String)
+
+    case Expired(message: String)
+
+    case WrongNetwork(message: String)
+
+    case AmountRequired(message: String)
+
+    case AmountMismatch(message: String)
+
+    case InsufficientFunds(message: String)
+
+    case Unavailable(message: String)
+
+    case Declined(message: String)
+
+    case InvalidFunding(message: String)
+
+    case PersistenceFailed(message: String)
+
+    case NotRunning(message: String)
+
+    case ChainUnavailable(message: String)
+
+    case Timeout(message: String)
+
+    case Busy(message: String)
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDirectFundingError: FfiConverterRustBuffer {
+    typealias SwiftType = DirectFundingError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DirectFundingError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        case 1: return try .InvalidRequest(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 2: return try .Expired(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 3: return try .WrongNetwork(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 4: return try .AmountRequired(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 5: return try .AmountMismatch(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 6: return try .InsufficientFunds(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 7: return try .Unavailable(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 8: return try .Declined(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 9: return try .InvalidFunding(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 10: return try .PersistenceFailed(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 11: return try .NotRunning(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 12: return try .ChainUnavailable(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 13: return try .Timeout(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 14: return try .Busy(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DirectFundingError, into buf: inout [UInt8]) {
+        switch value {
+        case .InvalidRequest(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(1))
+        case .Expired(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(2))
+        case .WrongNetwork(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(3))
+        case .AmountRequired(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(4))
+        case .AmountMismatch(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(5))
+        case .InsufficientFunds(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(6))
+        case .Unavailable(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(7))
+        case .Declined(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(8))
+        case .InvalidFunding(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(9))
+        case .PersistenceFailed(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(10))
+        case .NotRunning(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(11))
+        case .ChainUnavailable(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(12))
+        case .Timeout(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(13))
+        case .Busy(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(14))
+        }
+    }
+}
+
+extension DirectFundingError: Equatable, Hashable {}
+
+extension DirectFundingError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum DirectFundingPaymentStatus {
+    case offered
+    case signedPending
+    case mempoolSeen
+    case confirmed
+    case aborted
+    case failed
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDirectFundingPaymentStatus: FfiConverterRustBuffer {
+    typealias SwiftType = DirectFundingPaymentStatus
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DirectFundingPaymentStatus {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        case 1: return .offered
+
+        case 2: return .signedPending
+
+        case 3: return .mempoolSeen
+
+        case 4: return .confirmed
+
+        case 5: return .aborted
+
+        case 6: return .failed
+
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DirectFundingPaymentStatus, into buf: inout [UInt8]) {
+        switch value {
+        case .offered:
+            writeInt(&buf, Int32(1))
+
+        case .signedPending:
+            writeInt(&buf, Int32(2))
+
+        case .mempoolSeen:
+            writeInt(&buf, Int32(3))
+
+        case .confirmed:
+            writeInt(&buf, Int32(4))
+
+        case .aborted:
+            writeInt(&buf, Int32(5))
+
+        case .failed:
+            writeInt(&buf, Int32(6))
+        }
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDirectFundingPaymentStatus_lift(_ buf: RustBuffer) throws -> DirectFundingPaymentStatus {
+    return try FfiConverterTypeDirectFundingPaymentStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDirectFundingPaymentStatus_lower(_ value: DirectFundingPaymentStatus) -> RustBuffer {
+    return FfiConverterTypeDirectFundingPaymentStatus.lower(value)
+}
+
+extension DirectFundingPaymentStatus: Equatable, Hashable {}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
@@ -9479,6 +10213,8 @@ public enum NodeError {
 
     case TransactionNotFound(message: String)
 
+    case TransactionNotBroadcastByWallet(message: String)
+
     case TransactionAlreadyConfirmed(message: String)
 
     case NoSpendableOutputs(message: String)
@@ -9498,6 +10234,14 @@ public enum NodeError {
     case OnchainWalletAccountNotRegistered(message: String)
 
     case InvalidSeedBytes(message: String)
+
+    case LiquiditySourceInsufficientFunds(message: String)
+
+    case LiquidityRequestRejected(message: String)
+
+    case LiquidityRequestTimedOut(message: String)
+
+    case LiquidityReceiveAmountTooSmall(message: String)
 }
 
 #if swift(>=5.8)
@@ -9741,43 +10485,63 @@ public struct FfiConverterTypeNodeError: FfiConverterRustBuffer {
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 59: return try .TransactionAlreadyConfirmed(
+        case 59: return try .TransactionNotBroadcastByWallet(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 60: return try .NoSpendableOutputs(
+        case 60: return try .TransactionAlreadyConfirmed(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 61: return try .CoinSelectionFailed(
+        case 61: return try .NoSpendableOutputs(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 62: return try .InvalidMnemonic(
+        case 62: return try .CoinSelectionFailed(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 63: return try .BackgroundSyncNotEnabled(
+        case 63: return try .InvalidMnemonic(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 64: return try .AddressTypeAlreadyMonitored(
+        case 64: return try .BackgroundSyncNotEnabled(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 65: return try .AddressTypeIsPrimary(
+        case 65: return try .AddressTypeAlreadyMonitored(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 66: return try .AddressTypeNotMonitored(
+        case 66: return try .AddressTypeIsPrimary(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 67: return try .OnchainWalletAccountNotRegistered(
+        case 67: return try .AddressTypeNotMonitored(
                 message: FfiConverterString.read(from: &buf)
             )
 
-        case 68: return try .InvalidSeedBytes(
+        case 68: return try .OnchainWalletAccountNotRegistered(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 69: return try .InvalidSeedBytes(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 70: return try .LiquiditySourceInsufficientFunds(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 71: return try .LiquidityRequestRejected(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 72: return try .LiquidityRequestTimedOut(
+                message: FfiConverterString.read(from: &buf)
+            )
+
+        case 73: return try .LiquidityReceiveAmountTooSmall(
                 message: FfiConverterString.read(from: &buf)
             )
 
@@ -9903,26 +10667,36 @@ public struct FfiConverterTypeNodeError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(57))
         case .TransactionNotFound(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(58))
-        case .TransactionAlreadyConfirmed(_ /* message is ignored*/ ):
+        case .TransactionNotBroadcastByWallet(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(59))
-        case .NoSpendableOutputs(_ /* message is ignored*/ ):
+        case .TransactionAlreadyConfirmed(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(60))
-        case .CoinSelectionFailed(_ /* message is ignored*/ ):
+        case .NoSpendableOutputs(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(61))
-        case .InvalidMnemonic(_ /* message is ignored*/ ):
+        case .CoinSelectionFailed(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(62))
-        case .BackgroundSyncNotEnabled(_ /* message is ignored*/ ):
+        case .InvalidMnemonic(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(63))
-        case .AddressTypeAlreadyMonitored(_ /* message is ignored*/ ):
+        case .BackgroundSyncNotEnabled(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(64))
-        case .AddressTypeIsPrimary(_ /* message is ignored*/ ):
+        case .AddressTypeAlreadyMonitored(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(65))
-        case .AddressTypeNotMonitored(_ /* message is ignored*/ ):
+        case .AddressTypeIsPrimary(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(66))
-        case .OnchainWalletAccountNotRegistered(_ /* message is ignored*/ ):
+        case .AddressTypeNotMonitored(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(67))
-        case .InvalidSeedBytes(_ /* message is ignored*/ ):
+        case .OnchainWalletAccountNotRegistered(_ /* message is ignored*/ ):
             writeInt(&buf, Int32(68))
+        case .InvalidSeedBytes(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(69))
+        case .LiquiditySourceInsufficientFunds(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(70))
+        case .LiquidityRequestRejected(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(71))
+        case .LiquidityRequestTimedOut(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(72))
+        case .LiquidityReceiveAmountTooSmall(_ /* message is ignored*/ ):
+            writeInt(&buf, Int32(73))
         }
     }
 }
@@ -11941,6 +12715,31 @@ private struct FfiConverterSequenceTypeCustomTlvRecord: FfiConverterRustBuffer {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
+private struct FfiConverterSequenceTypeDirectFundingPaymentDetails: FfiConverterRustBuffer {
+    typealias SwiftType = [DirectFundingPaymentDetails]
+
+    static func write(_ value: [DirectFundingPaymentDetails], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeDirectFundingPaymentDetails.write(item, into: &buf)
+        }
+    }
+
+    static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [DirectFundingPaymentDetails] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [DirectFundingPaymentDetails]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            try seq.append(FfiConverterTypeDirectFundingPaymentDetails.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
 private struct FfiConverterSequenceTypeOnchainWalletAccount: FfiConverterRustBuffer {
     typealias SwiftType = [OnchainWalletAccount]
 
@@ -13598,6 +14397,9 @@ private var initializationResult: InitializationResult = {
     if uniffi_ldk_node_checksum_method_builder_set_pathfinding_scores_source() != 63501 {
         return InitializationResult.apiChecksumMismatch
     }
+    if uniffi_ldk_node_checksum_method_builder_set_primary_node() != 53706 {
+        return InitializationResult.apiChecksumMismatch
+    }
     if uniffi_ldk_node_checksum_method_builder_set_scoring_decay_params() != 19869 {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13655,6 +14457,9 @@ private var initializationResult: InitializationResult = {
     if uniffi_ldk_node_checksum_method_node_bolt12_payment() != 49254 {
         return InitializationResult.apiChecksumMismatch
     }
+    if uniffi_ldk_node_checksum_method_node_check_primary_connection() != 60941 {
+        return InitializationResult.apiChecksumMismatch
+    }
     if uniffi_ldk_node_checksum_method_node_close_channel() != 62479 {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13664,10 +14469,19 @@ private var initializationResult: InitializationResult = {
     if uniffi_ldk_node_checksum_method_node_connect() != 34120 {
         return InitializationResult.apiChecksumMismatch
     }
+    if uniffi_ldk_node_checksum_method_node_create_direct_funding_request() != 41849 {
+        return InitializationResult.apiChecksumMismatch
+    }
     if uniffi_ldk_node_checksum_method_node_current_sync_intervals() != 51918 {
         return InitializationResult.apiChecksumMismatch
     }
+    if uniffi_ldk_node_checksum_method_node_decode_direct_funding_request() != 10123 {
+        return InitializationResult.apiChecksumMismatch
+    }
     if uniffi_ldk_node_checksum_method_node_disconnect() != 43538 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_estimated_fee_rates() != 5053 {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_event_handled() != 38712 {
@@ -13677,6 +14491,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_export_pathfinding_scores() != 62331 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_fetch_transaction_details() != 21405 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_fetch_transaction_status() != 5238 {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_force_close_channel() != 48831 {
@@ -13694,10 +14514,19 @@ private var initializationResult: InitializationResult = {
     if uniffi_ldk_node_checksum_method_node_get_transaction_details() != 65000 {
         return InitializationResult.apiChecksumMismatch
     }
+    if uniffi_ldk_node_checksum_method_node_has_pending_funding_operation() != 42644 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_invalidate_direct_funding_request() != 24105 {
+        return InitializationResult.apiChecksumMismatch
+    }
     if uniffi_ldk_node_checksum_method_node_list_balances() != 57528 {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_list_channels() != 7954 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_list_direct_funding_payments() != 63471 {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_list_monitored_address_types() != 25084 {
@@ -13742,7 +14571,19 @@ private var initializationResult: InitializationResult = {
     if uniffi_ldk_node_checksum_method_node_open_channel() != 40283 {
         return InitializationResult.apiChecksumMismatch
     }
+    if uniffi_ldk_node_checksum_method_node_open_channel_with_user_channel_id() != 36770 {
+        return InitializationResult.apiChecksumMismatch
+    }
     if uniffi_ldk_node_checksum_method_node_payment() != 60296 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_prepare_direct_funding() != 16597 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_quote_primary_receive() != 37655 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_receive_via_primary() != 17747 {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_remove_address_type_from_monitor() != 37081 {
@@ -13752,6 +14593,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_remove_payment() != 47952 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_send_direct_funding() != 27855 {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_set_primary_address_type() != 11005 {
@@ -13767,6 +14611,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_splice_out() != 22115 {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if uniffi_ldk_node_checksum_method_node_splice_out_with_fee_rate() != 61607 {
         return InitializationResult.apiChecksumMismatch
     }
     if uniffi_ldk_node_checksum_method_node_spontaneous_payment() != 37403 {
