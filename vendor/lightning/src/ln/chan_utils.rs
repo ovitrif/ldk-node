@@ -131,12 +131,15 @@ const MULTISIG_SCRIPT_SIZE: u64 = 1 + // OP_2
 /// shorter.
 ///
 /// [spec]: https://github.com/lightning/bolts/blob/master/03-transactions.md#expected-weight-of-the-commitment-transaction
+///
+/// Local patch: each signature is weighed at 73 bytes, the BOLT 3 figure, because a Beignet
+/// splice counterparty rejects a shared-input contribution priced at 72-byte signatures.
 pub const FUNDING_TRANSACTION_WITNESS_WEIGHT: u64 = 1 + // number_of_witness_elements
 	1 + // nil_len
 	1 + // sig len
-	crate::sign::MAX_STANDARD_SIGNATURE_SIZE as u64 + // sig1
+	crate::sign::MAX_STANDARD_SIGNATURE_SIZE as u64 + 1 + // sig1
 	1 + // sig len
-	crate::sign::MAX_STANDARD_SIGNATURE_SIZE as u64 + // sig2
+	crate::sign::MAX_STANDARD_SIGNATURE_SIZE as u64 + 1 + // sig2
 	1 + // witness_script_length
 	MULTISIG_SCRIPT_SIZE;
 

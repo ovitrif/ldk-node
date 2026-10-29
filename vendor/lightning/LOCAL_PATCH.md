@@ -202,3 +202,16 @@ custody must be resolved with the prior implementation before migrating its stor
 ```sh
 cargo test -p lightning@0.2.7 --lib removed_ffor
 ```
+
+## Splice shared-input weight
+
+`FUNDING_TRANSACTION_WITNESS_WEIGHT` weighs both funding signatures at 73 bytes, the BOLT 3
+figure, instead of the 72 bytes upstream uses since rust-lightning `eb341de78`. A Beignet
+splice counterparty prices the shared funding input at 386 WU and rejects any contribution
+whose fee falls below that weight's minimum, so with 72-byte signatures every splice-out at
+2 sat/vB or more failed with `Fee N is below minimum N+1`. The extra 2 WU overpays a splice
+by at most a few sats.
+
+```sh
+cargo test -p lightning@0.2.7 --lib splic
+```
